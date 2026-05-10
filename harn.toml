@@ -13,6 +13,31 @@ default = "src/lib.harn"
 id = "bitbucket"
 connector = { harn = "src/lib.harn" }
 
+[providers.setup]
+auth_type = "api-key"
+flow = "api-key"
+required_secrets = ["bitbucket/api-token", "bitbucket/webhook-secret"]
+setup_command = ["harn", "connect", "bitbucket"]
+validation_command = ["harn", "connect", "status", "--connector", "bitbucket", "--json"]
+
+[[providers.setup.health_checks]]
+id = "api-token"
+kind = "secret"
+secret = "bitbucket/api-token"
+
+[[providers.setup.health_checks]]
+id = "webhook-secret"
+kind = "secret"
+secret = "bitbucket/webhook-secret"
+
+[providers.setup.recovery]
+missing_auth = "Store bitbucket/api-token and bitbucket/webhook-secret before enabling Bitbucket bindings."
+expired_credentials = "Rotate bitbucket/api-token, then rerun the Bitbucket connection validation."
+revoked_credentials = "Replace bitbucket/api-token with an active Bitbucket app password or access token."
+missing_scopes = "Grant repository and pull request scopes required by the configured Bitbucket workflows."
+inaccessible_resource = "Confirm the token can access the target Bitbucket workspace and repository."
+transient_provider_outage = "Retry after Bitbucket API and webhook delivery endpoints are healthy."
+
 [dependencies]
 
 [connector_contract]

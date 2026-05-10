@@ -1,0 +1,68 @@
+import { call } from "../src/lib"
+
+@complexity(allow)
+pipeline default() {
+  http_mock_clear()
+  let base = "https://bitbucket-api.test/2.0"
+  let first_url = base + "/repositories/acme/widgets/pullrequests"
+  let second_url = base + "/repositories/acme/widgets/pullrequests?page=2"
+  let third_url = base + "/repositories/acme/widgets/pullrequests?page=3"
+  http_mock(
+    "GET",
+    first_url,
+    {
+      status: 200,
+      body: "{\"values\":[{\"id\":1},{\"id\":2}],\"next\":\"" + second_url + "\",\"pagelen\":2}",
+    },
+  )
+  http_mock(
+    "GET",
+    second_url,
+    {
+      status: 200,
+      body: "{\"values\":[{\"id\":3},{\"id\":4}],\"next\":\"" + third_url + "\",\"pagelen\":2}",
+    },
+  )
+  http_mock("GET", third_url, {status: 200, body: "{\"values\":[{\"id\":5}],\"pagelen\":2}"})
+  let listed = call(
+    "pagination.list",
+    {api_base_url: base, path: "/repositories/acme/widgets/pullrequests", access_token: "token"},
+  )
+  assert_eq(listed.complete, true, "all pages drained")
+  assert_eq(len(listed.items), 5, "all items collected across pages")
+  assert_eq(listed.items[0].id, 1, "first item from first page")
+  assert_eq(listed.items[4].id, 5, "last item from final page")
+  http_mock_clear()
+  let single_url = base + "/repositories/acme/widgets/issues"
+  http_mock("GET", single_url, {status: 200, body: "{\"values\":[{\"id\":99}]}"})
+  let single = call(
+    "pagination.list",
+    {api_base_url: base, path: "/repositories/acme/widgets/issues", access_token: "token"},
+  )
+  assert_eq(single.complete, true, "single page complete")
+  assert_eq(len(single.items), 1, "single page item count")
+  http_mock_clear()
+  let bounded_first = base + "/repositories/acme/widgets/commits"
+  let bounded_next = base + "/repositories/acme/widgets/commits?page=2"
+  http_mock(
+    "GET",
+    bounded_first,
+    {status: 200, body: "{\"values\":[{\"hash\":\"a\"}],\"next\":\"" + bounded_next + "\"}"},
+  )
+  let bounded = call(
+    "pagination.list",
+    {
+      api_base_url: base,
+      path: "/repositories/acme/widgets/commits",
+      access_token: "token",
+      max_pages: 1,
+    },
+  )
+  assert_eq(bounded.complete, false, "bounded paginate stops at max_pages")
+  assert_eq(len(bounded.items), 1, "bounded paginate returns first-page items")
+  assert(bounded.next_cursor != nil, "bounded paginate exposes next_cursor")
+  let missing = call("pagination.list", {api_base_url: base, access_token: "token"})
+  assert(is_err(missing), "missing path errors")
+  assert_eq(unwrap_err(missing).code, "invalid_args", "missing path code")
+  http_mock_clear()
+}

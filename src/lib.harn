@@ -493,12 +493,10 @@ fn __send_with_rate_limit_retry(method, url, options, args) {
     }
     let code = if __is_throttled_status(response.status) {
       "rate_limited"
+    } else if response.status == 401 || response.status == 403 {
+      "unauthorized"
     } else {
-      if response.status == 401 || response.status == 403 {
-        "unauthorized"
-      } else {
-        "transport"
-      }
+      "transport"
     }
     return __err(
       code,

@@ -15,33 +15,29 @@ pipeline default() {
   activate([{id: "primary", path: "/hooks/bitbucket", secrets: {signing_secret: "secret"}}])
   let body = pr_body()
   let prefixed = "sha256=" + hmac_sha256("secret", body)
-  let prefixed_result = normalize_inbound(
-    {signing_secret: "secret", body_text: body, headers: pr_headers() + {"x-hub-signature": prefixed}},
-  )
+  let prefixed_result = normalize_inbound({body_text: body, headers: pr_headers() + {"x-hub-signature": prefixed}})
   assert_eq(prefixed_result.type, "event", "prefixed signature accepted")
   assert_eq(prefixed_result.event.signature_status.state, "verified", "prefixed signature verified")
   let bare = hmac_sha256("secret", body)
-  let bare_result = normalize_inbound(
-    {signing_secret: "secret", body_text: body, headers: pr_headers() + {"x-hub-signature": bare}},
-  )
+  let bare_result = normalize_inbound({body_text: body, headers: pr_headers() + {"x-hub-signature": bare}})
   assert_eq(bare_result.type, "event", "bare-hex signature accepted")
   assert_eq(bare_result.event.signature_status.state, "verified", "bare-hex signature verified")
-  let mismatched = normalize_inbound(
-    {
-      signing_secret: "secret",
-      body_text: body,
-      headers: pr_headers() + {"x-hub-signature": "sha256=00"},
-    },
-  )
+  let mismatched = normalize_inbound({body_text: body, headers: pr_headers() + {"x-hub-signature": "sha256=00"}})
   assert_eq(mismatched.type, "reject", "mismatched signature rejects")
   assert_eq(mismatched.reject.status, 401, "mismatched signature unauthorized")
-  let missing = normalize_inbound({signing_secret: "secret", body_text: body, headers: pr_headers()})
+  let missing = normalize_inbound({body_text: body, headers: pr_headers()})
   assert_eq(missing.type, "reject", "missing signature rejects when secret configured")
   assert_eq(missing.reject.status, 401, "missing signature unauthorized")
   shutdown()
   init()
-  let unsigned = normalize_inbound({body_text: body, headers: pr_headers()})
-  assert_eq(unsigned.type, "event", "unsigned accepted when no secret")
+  // F1 fail-closed: with no secret AND no allow_unsigned binding, unsigned rejects.
+  let unsigned_reject = normalize_inbound({body_text: body, headers: pr_headers()})
+  assert_eq(unsigned_reject.type, "reject", "unsigned rejects when no secret configured")
+  assert_eq(unsigned_reject.reject.status, 401, "unsigned reject status 401")
+  // F1 opt-in: a binding with allow_unsigned: true keeps the unsigned path.
+  activate([{binding_id: "lenient", path: "/hooks/lenient", allow_unsigned: true}])
+  let unsigned = normalize_inbound({body_text: body, headers: pr_headers(), metadata: {binding_id: "lenient"}})
+  assert_eq(unsigned.type, "event", "unsigned accepted when binding opts in")
   assert_eq(unsigned.event.signature_status.state, "unsigned", "unsigned status set")
   shutdown()
 }

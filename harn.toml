@@ -48,11 +48,12 @@ version = 1
 provider = "bitbucket"
 name = "happy path"
 kind = "webhook"
-headers = { "x-event-key" = "pullrequest:created", "x-hook-uuid" = "delivery-1" }
-body_json = { repository = { full_name = "acme/widgets" }, actor = { display_name = "Ada" }, pullrequest = { id = 42, title = "Improve widgets" } }
+headers = { "x-event-key" = "pullrequest:created", "x-hook-uuid" = "delivery-1", "x-hub-signature" = "sha256=3d1e3278d4e0b431025b61675c47d01b69a551386a8e8b5cedb53fb680ce1e90" }
+metadata = { secret_ids = { signing_secret = "bitbucket/signing_secret" } }
+body = '''{"actor":{"display_name":"Ada"},"pullrequest":{"id":42,"title":"Improve widgets"},"repository":{"full_name":"acme/widgets"}}'''
 expect_type = "event"
 expect_kind = "pullrequest.created"
-expect_signature_state = "unsigned"
+expect_signature_state = "verified"
 expect_event_count = 1
 expect_payload_contains = { provider = "bitbucket", raw = { event = "pullrequest:created" } }
 
@@ -60,7 +61,8 @@ expect_payload_contains = { provider = "bitbucket", raw = { event = "pullrequest
 provider = "bitbucket"
 name = "malformed payload"
 kind = "webhook"
-headers = { "x-event-key" = "pullrequest:created" }
+headers = { "x-event-key" = "pullrequest:created", "x-hub-signature" = "sha256=2e8a6d0d0886bf7e1611c8218f880cdd4fbacea49c260b7ba4adc2dd0beffd03" }
+metadata = { secret_ids = { signing_secret = "bitbucket/signing_secret" } }
 body = "{not json"
 expect_type = "reject"
 expect_response_status = 400

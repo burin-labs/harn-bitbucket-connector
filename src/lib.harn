@@ -24,6 +24,8 @@ let RETRY_AFTER_HEADER = "retry-after"
 
 let DEFAULT_RATE_LIMIT_MAX_WAIT_SECONDS = 60
 
+let MAX_BODY_BYTES = 1048576
+
 let SUPPORTED_EVENTS = [
   "repo:push",
   "pullrequest:created",
@@ -90,7 +92,7 @@ pub fn activate(bindings = []) {
   var by_id = {}
   var seen_paths = {}
   for binding in bindings ?? [] {
-    let binding_id = binding?.binding_id ?? binding?.id ?? "binding-" + to_string(len(by_id.keys()))
+    let binding_id = binding?.binding_id ?? binding?.id ?? ("binding-" + to_string(len(by_id.keys())))
     let path = binding?.path ?? binding?.match?.path
     if path != nil && path != "" {
       if seen_paths.get(path) {
@@ -118,7 +120,15 @@ pub fn shutdown() {
 /** Verify and normalize an inbound webhook request. */
 pub fn normalize_inbound(raw) {
   let body_text = raw?.body_text ?? raw?.body ?? ""
+  if len(body_text) > MAX_BODY_BYTES {
+    return __reject(413, "payload_too_large", PROVIDER_ID + " webhook body exceeds 1 MiB cap")
+  }
   let headers = raw?.headers ?? {}
+  let verified = __verify_signature(raw, headers, body_text)
+  if is_err(verified) {
+    return __reject_err(unwrap_err(verified))
+  }
+  let signature_status = unwrap(verified)
   let parsed = try {
     json_parse(body_text)
   }
@@ -126,11 +136,6 @@ pub fn normalize_inbound(raw) {
     return __reject(400, "invalid_json", PROVIDER_ID + " payload body is not valid JSON")
   }
   let payload = unwrap(parsed)
-  let verified = __verify_signature(raw, headers, body_text)
-  if is_err(verified) {
-    return __reject_err(unwrap_err(verified))
-  }
-  let signature_status = unwrap(verified)
   let base_event = __base_event(payload, headers)
   if base_event == nil || base_event == "" {
     return __reject(400, "missing_event", "missing " + PROVIDER_ID + " event header or payload event")
@@ -235,7 +240,7 @@ fn __reject(status, code, message) {
 
 fn __reject_err(err) {
   let code = err?.code ?? "rejected"
-  let status = if code == "invalid_signature" || code == "missing_signature" {
+  let status = if code == "invalid_signature" || code == "missing_signature" || code == "missing_secret" {
     401
   } else {
     400
@@ -277,7 +282,14 @@ fn __supports_event(event) {
 fn __verify_signature(raw, headers, body_text) {
   let secret = __signing_secret(raw)
   if secret == nil || trim(to_string(secret)) == "" {
-    return Ok("unsigned")
+    if __binding_allows_unsigned(raw) {
+      return Ok("unsigned")
+    }
+    return __err(
+      "missing_secret",
+      PROVIDER_ID
+        + " signing_secret is required; set `allow_unsigned: true` on the binding to accept unsigned webhooks",
+    )
   }
   let provided = __header(headers, SIGNATURE_HEADER)
   if provided == nil || provided == "" {
@@ -290,11 +302,6 @@ fn __verify_signature(raw, headers, body_text) {
 }
 
 fn __signing_secret(raw) {
-  let direct = raw?.signing_secret ?? raw?.secret ?? raw?.webhook_secret ?? raw?.config?.signing_secret
-    ?? raw?.secrets?.signing_secret
-  if direct != nil && trim(to_string(direct)) != "" {
-    return to_string(direct)
-  }
   let state = __state()
   let ctx_secret = state?.ctx?.signing_secret ?? state?.ctx?.secrets?.signing_secret
   if ctx_secret != nil && trim(to_string(ctx_secret)) != "" {
@@ -304,14 +311,57 @@ fn __signing_secret(raw) {
   let binding_id = raw?.metadata?.binding_id ?? raw?.binding_id
   if binding_id != nil {
     let binding = bindings.get(binding_id)
-    return binding?.signing_secret ?? binding?.secrets?.signing_secret ?? binding?.config?.signing_secret
+    let binding_secret = binding?.signing_secret ?? binding?.secrets?.signing_secret
+      ?? binding?.config?.signing_secret
+    if binding_secret != nil && trim(to_string(binding_secret)) != "" {
+      return to_string(binding_secret)
+    }
   }
-  let values = bindings.values()
-  if len(values) == 1 {
-    let binding = values[0]
-    return binding?.signing_secret ?? binding?.secrets?.signing_secret ?? binding?.config?.signing_secret
+  let secret_id = __signing_secret_id(raw)
+  if secret_id != nil {
+    let resolved = try {
+      secret_get(secret_id)
+    }
+    if !is_err(resolved) {
+      let value = to_string(unwrap(resolved))
+      if value != "" {
+        return value
+      }
+    }
   }
   return nil
+}
+
+fn __signing_secret_id(raw) {
+  let metadata = raw?.metadata ?? {}
+  let id = metadata?.secret_ids?.signing_secret ?? metadata?.config?.secret_ids?.signing_secret
+  if id != nil && trim(to_string(id)) != "" {
+    return to_string(id)
+  }
+  let bindings = __state()?.bindings ?? {}
+  let binding_id = metadata?.binding_id ?? raw?.binding_id
+  if binding_id != nil {
+    let binding = bindings.get(binding_id)
+    let bid = binding?.signing_secret_id ?? binding?.secrets?.signing_secret_id
+      ?? binding?.config?.secret_ids?.signing_secret
+    if bid != nil && trim(to_string(bid)) != "" {
+      return to_string(bid)
+    }
+  }
+  return nil
+}
+
+fn __binding_allows_unsigned(raw) {
+  let bindings = __state()?.bindings ?? {}
+  let binding_id = raw?.metadata?.binding_id ?? raw?.binding_id
+  if binding_id == nil {
+    return false
+  }
+  let binding = bindings.get(binding_id)
+  if binding == nil {
+    return false
+  }
+  return binding?.allow_unsigned ?? binding?.config?.allow_unsigned ?? false
 }
 
 @complexity(allow)
@@ -419,6 +469,10 @@ fn __outbound_config(args) {
   let env_base = ENV_PREFIX + "_API_BASE_URL"
   let env_token = ENV_PREFIX + "_TOKEN"
   let api_base_url = args?.api_base_url ?? env_or(env_base, DEFAULT_API_BASE_URL)
+  let base_check = __validate_api_base_url(api_base_url)
+  if is_err(base_check) {
+    return base_check
+  }
   let access_token = args?.access_token ?? args?.token ?? args?.personal_access_token ?? args?.app_password
     ?? args?.secrets?.access_token
     ?? env(env_token)
@@ -463,7 +517,11 @@ fn __api_request(args) {
     options["body"] = json_stringify(args.body)
     options.headers["Content-Type"] = "application/json"
   }
-  let url = __api_url(cfg.api_base_url, path)
+  let url_result = __api_url(cfg.api_base_url, path)
+  if is_err(url_result) {
+    return url_result
+  }
+  let url = unwrap(url_result)
   return __send_with_rate_limit_retry(method, url, options, args)
 }
 
@@ -599,7 +657,11 @@ fn __pagination_list(args) {
   if trim(to_string(initial_path)) == "" {
     return __err("invalid_args", "pagination.list requires `path` or `url`")
   }
-  let initial_url = __api_url(cfg.api_base_url, initial_path)
+  let initial_url_result = __api_url(cfg.api_base_url, initial_path)
+  if is_err(initial_url_result) {
+    return initial_url_result
+  }
+  let initial_url = unwrap(initial_url_result)
   let max_pages = args?.max_pages ?? 100
   let items_path = args?.items_path ?? "/values"
   let cursor_path = args?.cursor_path ?? "/next"
@@ -633,18 +695,127 @@ fn __pagination_list(args) {
 
 fn __api_url(api_base_url, path) {
   let base = trim(to_string(api_base_url))
-  if starts_with(path, "http://") || starts_with(path, "https://") {
-    return path
-  }
   let prefix = if ends_with(base, "/") {
     base[0:len(base) - 1]
   } else {
     base
   }
-  if starts_with(path, "/") {
-    return prefix + path
+  let path_str = to_string(path)
+  let path_lc = lowercase(path_str)
+  // F2: refuse arbitrary absolute URLs. Pagination cursors that point back to
+  // the same host as api_base_url are still allowed (Bitbucket's REST API
+  // returns absolute `next` cursors).
+  if starts_with(path_lc, "http://") || starts_with(path_lc, "https://") {
+    if !starts_with(path_lc, lowercase(prefix) + "/") && lowercase(path_str) != lowercase(prefix) {
+      return __err(
+        "invalid_path",
+        "bitbucket api.request rejects absolute URL paths that escape the configured api_base_url host; pass a path beginning with /",
+      )
+    }
+    return Ok(path_str)
   }
-  return prefix + "/" + path
+  if starts_with(path_str, "/") {
+    return Ok(prefix + path_str)
+  }
+  return Ok(prefix + "/" + path_str)
+}
+
+@complexity(allow)
+fn __validate_api_base_url(api_base_url) {
+  if api_base_url == nil || trim(to_string(api_base_url)) == "" {
+    return __err("invalid_api_base_url", "api_base_url is required")
+  }
+  let url = trim(to_string(api_base_url))
+  if !starts_with(lowercase(url), "https://") {
+    return __err("invalid_api_base_url", "api_base_url must use https:// scheme")
+  }
+  let after_scheme = url[8:len(url)]
+  let slash_idx = __index_of(after_scheme, "/")
+  let host_port = if slash_idx >= 0 {
+    after_scheme[0:slash_idx]
+  } else {
+    after_scheme
+  }
+  let host = __strip_port(host_port)
+  if host == "" {
+    return __err("invalid_api_base_url", "api_base_url is missing a host")
+  }
+  let host_lc = lowercase(host)
+  if __is_disallowed_host(host_lc) {
+    return __err(
+      "invalid_api_base_url",
+      "api_base_url host `" + host
+        + "` is not allowed (loopback/private/link-local/.internal/.local are blocked)",
+    )
+  }
+  return Ok(true)
+}
+
+fn __strip_port(host_port) {
+  if starts_with(host_port, "[") {
+    let close = __index_of(host_port, "]")
+    if close >= 0 {
+      return host_port[1:close]
+    }
+    return host_port
+  }
+  let colon = __index_of(host_port, ":")
+  if colon >= 0 {
+    return host_port[0:colon]
+  }
+  return host_port
+}
+
+fn __index_of(text, needle) {
+  let n = len(text)
+  let m = len(needle)
+  if m == 0 {
+    return 0
+  }
+  var i = 0
+  while i + m <= n {
+    if text[i:i + m] == needle {
+      return i
+    }
+    i = i + 1
+  }
+  return -1
+}
+
+@complexity(allow)
+fn __is_disallowed_host(host_lc) {
+  if host_lc == "localhost" {
+    return true
+  }
+  if ends_with(host_lc, ".localhost") || ends_with(host_lc, ".local")
+    || ends_with(host_lc, ".internal") {
+    return true
+  }
+  if host_lc == "::1" || host_lc == "0:0:0:0:0:0:0:1" {
+    return true
+  }
+  if starts_with(host_lc, "127.") || starts_with(host_lc, "10.")
+    || starts_with(host_lc, "169.254.")
+    || starts_with(host_lc, "192.168.") {
+    return true
+  }
+  if starts_with(host_lc, "172.") {
+    let rest = host_lc[4:len(host_lc)]
+    let dot = __index_of(rest, ".")
+    if dot > 0 {
+      let octet_str = rest[0:dot]
+      let parsed = try {
+        to_int(octet_str)
+      }
+      if !is_err(parsed) {
+        let octet = unwrap(parsed)
+        if octet >= 16 && octet <= 31 {
+          return true
+        }
+      }
+    }
+  }
+  return false
 }
 
 fn __repo_ref(args) {

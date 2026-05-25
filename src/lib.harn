@@ -468,14 +468,14 @@ fn __normalized_headers(headers) {
 fn __outbound_config(args) {
   let env_base = ENV_PREFIX + "_API_BASE_URL"
   let env_token = ENV_PREFIX + "_TOKEN"
-  let api_base_url = args?.api_base_url ?? env_or(env_base, DEFAULT_API_BASE_URL)
+  let api_base_url = args?.api_base_url ?? harness.env.get_or(env_base, DEFAULT_API_BASE_URL)
   let base_check = __validate_api_base_url(api_base_url)
   if is_err(base_check) {
     return base_check
   }
   let access_token = args?.access_token ?? args?.token ?? args?.personal_access_token ?? args?.app_password
     ?? args?.secrets?.access_token
-    ?? env(env_token)
+    ?? harness.env.get(env_token)
   return Ok({api_base_url: to_string(api_base_url), access_token: access_token})
 }
 
@@ -532,7 +532,7 @@ fn __send_with_rate_limit_retry(method, url, options, args) {
   var retried_rate_limit = false
   while true {
     let response_result = try {
-      http_request(method, url, options)
+      harness.net.request(method, url, options)
     }
     if is_err(response_result) {
       return __err("transport", to_string(unwrap_err(response_result)))
@@ -620,7 +620,7 @@ fn __rate_limit_wait_seconds(status, headers, override_now) {
   if is_err(parsed_reset) {
     return 0
   }
-  let now = override_now ?? to_int(timestamp())
+  let now = override_now ?? to_int(harness.clock.timestamp())
   let wait = unwrap(parsed_reset) - now
   if wait < 0 {
     return 0

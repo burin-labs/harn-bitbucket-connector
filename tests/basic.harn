@@ -12,6 +12,7 @@ import {
 
 @complexity(allow)
 pipeline default() {
+  egress_policy({allow: ["api.bitbucket.org"], default: "deny"})
   shutdown()
   assert_eq(provider_id(), "bitbucket", "provider id")
   assert_eq(kinds()[0], "webhook", "first kind")

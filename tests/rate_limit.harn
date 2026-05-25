@@ -2,6 +2,7 @@ import { call, rate_limit_gate } from "../src/lib"
 
 @complexity(allow)
 pipeline default() {
+  egress_policy({allow: ["bitbucket-api.test"], default: "deny"})
   http_mock_clear()
   let base = "https://bitbucket-api.test/2.0"
   let path = "/repositories/acme/widgets/pullrequests"

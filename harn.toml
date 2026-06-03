@@ -1,6 +1,6 @@
 [package]
 name = "harn-bitbucket-connector"
-version = "0.1.0"
+version = "0.2.0"
 description = "Pure-Harn Bitbucket connector: Cloud/Data Center webhooks, HMAC verification, and REST dispatch."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/burin-labs/harn-bitbucket-connector"

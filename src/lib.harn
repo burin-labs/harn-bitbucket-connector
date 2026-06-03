@@ -32,8 +32,11 @@ let SUPPORTED_EVENTS = [
   "pullrequest:updated",
   "pullrequest:fulfilled",
   "pullrequest:rejected",
+  "pullrequest:comment_created",
+  "pullrequest:comment_updated",
   "issue:created",
   "issue:updated",
+  "issue:comment_created",
   "repo:commit_status_created",
   "repo:commit_status_updated",
 ]
@@ -378,6 +381,8 @@ fn __build_event(base_event, payload, raw, headers, signature_status, body_text)
       repository: __repository(payload),
       actor: __actor(payload),
       resource: __resource(payload),
+      merge: __pr_merge_state(base_event, payload),
+      mention: __mention_block(base_event, payload),
       raw: payload,
     },
     headers: __normalized_headers(headers),
@@ -429,6 +434,143 @@ fn __resource(payload) {
     ?? payload?.release
     ?? payload?.object_attributes
     ?? {revision: payload?.revision, changed_paths: payload?.changed_paths, commits: payload?.commits}
+}
+
+/**
+ * Surface PR merge/conflict state for `pullrequest:*` events, or nil for
+ * non-PR events. Bitbucket webhooks do not always carry an explicit conflict
+ * flag (that needs a follow-up `GET .../diffstat` / `/merge` call), so
+ * `is_conflict` is only set when the payload exposes a hint; `merge_state`
+ * always reflects the PR `state` plus any `merge_commit` present.
+ */
+fn __pr_merge_state(base_event, payload) {
+  let normalized = __normalize_kind(base_event)
+  if !starts_with(normalized, "pullrequest") {
+    return nil
+  }
+  let pr = payload?.pullrequest ?? payload?.pull_request ?? {}
+  let state = pr?.state
+  let merge_commit = pr?.merge_commit?.hash ?? pr?.merge_commit
+  let merge_state = if state != nil && to_string(state) != "" {
+    lowercase(to_string(state))
+  } else {
+    "unknown"
+  }
+  var result = {merge_commit: merge_commit, merge_state: merge_state}
+  let conflict_hint = __pr_conflict_hint(pr)
+  if conflict_hint != nil {
+    result["is_conflict"] = conflict_hint
+  }
+  return result
+}
+
+/**
+ * Extract an explicit conflict signal from a Bitbucket PR object when one is
+ * present. Returns nil when the webhook carries no mergeability hint (the
+ * common case) so callers can fall back to an API probe. Handles the
+ * Data Center `properties.mergeResult.outcome == "CONFLICTED"` shape and any
+ * boolean `has_conflicts` / `conflicted` flag.
+ */
+fn __pr_conflict_hint(pr) {
+  let has_conflicts = pr?.has_conflicts ?? pr?.conflicted
+  if has_conflicts != nil {
+    return has_conflicts == true
+  }
+  let outcome = pr?.properties?.mergeResult?.outcome ?? pr?.merge_result?.outcome
+  if outcome != nil && to_string(outcome) != "" {
+    return uppercase(to_string(outcome)) == "CONFLICTED"
+  }
+  return nil
+}
+
+/**
+ * Build an `@`-mention command block for PR-comment and issue-comment events.
+ * Scans the comment body for `@handle command args...` lines and returns a
+ * `{actor, candidates: [{handle, command, rest}], target_kind, target_id,
+ * url}` block, or nil when the event is not a comment or no mention is found.
+ * CPU-only string parsing, no network.
+ */
+fn __mention_block(base_event, payload) {
+  let normalized = __normalize_kind(base_event)
+  let is_pr_comment = starts_with(normalized, "pullrequest") && payload?.comment != nil
+  let is_issue_comment = starts_with(normalized, "issue") && payload?.comment != nil
+  if !is_pr_comment && !is_issue_comment {
+    return nil
+  }
+  let comment = payload?.comment ?? {}
+  let body = to_string(comment?.content?.raw ?? comment?.content ?? comment?.body ?? "")
+  let candidates = __extract_mentions(body)
+  if len(candidates) == 0 {
+    return nil
+  }
+  let target = if is_pr_comment {
+    payload?.pullrequest ?? payload?.pull_request ?? {}
+  } else {
+    payload?.issue ?? {}
+  }
+  let target_kind = if is_pr_comment {
+    "pull_request"
+  } else {
+    "issue"
+  }
+  return {
+    actor: __actor(payload),
+    candidates: candidates,
+    target_id: target?.id,
+    target_kind: target_kind,
+    url: comment?.links?.html?.href ?? target?.links?.html?.href,
+  }
+}
+
+/**
+ * Extract `@handle command args...` mentions from free text. Each line is
+ * scanned token-by-token; the first `@handle` followed by a command word
+ * yields one candidate `{command, handle, rest}`. Pure string parsing.
+ */
+fn __extract_mentions(body) {
+  var candidates = []
+  for line in split(to_string(body), "\n") {
+    let tokens = __whitespace_tokens(line)
+    if len(tokens) < 2 {
+      continue
+    }
+    let first = tokens[0]
+    if !starts_with(first, "@") || len(first) < 2 {
+      continue
+    }
+    let handle = first[1:len(first)]
+    if handle == "" {
+      continue
+    }
+    let command = tokens[1]
+    let rest = if len(tokens) > 2 {
+      join(tokens[2:len(tokens)], " ")
+    } else {
+      ""
+    }
+    candidates = candidates + [{command: command, handle: handle, rest: rest}]
+  }
+  return candidates
+}
+
+/** Split text on ASCII whitespace runs, dropping empty tokens. */
+fn __whitespace_tokens(text) {
+  var tokens = []
+  var current = ""
+  for ch in split(to_string(text), "") {
+    if ch == " " || ch == "\t" || ch == "\r" {
+      if current != "" {
+        tokens = tokens + [current]
+        current = ""
+      }
+    } else {
+      current = current + ch
+    }
+  }
+  if current != "" {
+    tokens = tokens + [current]
+  }
+  return tokens
 }
 
 fn __dedupe_key(base_event, payload, raw, headers, body_text) {

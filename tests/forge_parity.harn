@@ -1,0 +1,122 @@
+import { activate, init, normalize_inbound, shutdown } from "../src/lib"
+
+fn signed_raw(event_key, body) {
+  let signature = "sha256=" + hmac_sha256("secret", body)
+  return {
+    body_text: body,
+    headers: {"x-event-key": event_key, "x-hook-uuid": "delivery-" + event_key, "x-hub-signature": signature},
+  }
+}
+
+@complexity(allow)
+pipeline default() {
+  shutdown()
+  init({signing_secret: "secret"})
+  activate([{id: "primary", path: "/hooks/bitbucket", secrets: {signing_secret: "secret"}}])
+  // Merge-state surfacing on an open PR: merge_state mirrors the PR state and
+  // no conflict hint is present (Bitbucket webhooks omit mergeability).
+  let open_body = json_stringify(
+    {
+      actor: {display_name: "Ada", nickname: "ada"},
+      repository: {full_name: "acme/widgets", links: {html: {href: "https://bitbucket.org/acme/widgets"}}},
+      pullrequest: {id: 42, title: "Improve widgets", state: "OPEN"},
+    },
+  )
+  let open_pr = normalize_inbound(signed_raw("pullrequest:updated", open_body))
+  assert_eq(open_pr.type, "event", "open PR envelope")
+  let open_merge = open_pr.event.payload.merge
+  assert(open_merge != nil, "open PR has a merge block")
+  assert_eq(open_merge.merge_state, "open", "open PR merge_state")
+  assert_eq(open_merge.merge_commit, nil, "open PR has no merge commit")
+  assert_eq(open_merge.is_conflict, nil, "open PR has no conflict hint")
+  // A fulfilled PR carries a merge_commit hash and merged state.
+  let merged_body = json_stringify(
+    {
+      actor: {display_name: "Ada"},
+      repository: {full_name: "acme/widgets"},
+      pullrequest: {id: 42, title: "Improve widgets", state: "MERGED", merge_commit: {hash: "abc123"}},
+    },
+  )
+  let merged_pr = normalize_inbound(signed_raw("pullrequest:fulfilled", merged_body))
+  assert_eq(merged_pr.event.payload.merge.merge_state, "merged", "merged PR merge_state")
+  assert_eq(merged_pr.event.payload.merge.merge_commit, "abc123", "merged PR merge_commit")
+  // A Data Center PR exposing an explicit CONFLICTED merge result surfaces
+  // is_conflict=true.
+  let conflict_body = json_stringify(
+    {
+      actor: {display_name: "Ada"},
+      repository: {full_name: "acme/widgets"},
+      pullrequest: {
+        id: 42,
+        title: "Improve widgets",
+        state: "OPEN",
+        properties: {mergeResult: {outcome: "CONFLICTED"}},
+      },
+    },
+  )
+  let conflict_pr = normalize_inbound(signed_raw("pullrequest:updated", conflict_body))
+  assert_eq(conflict_pr.event.payload.merge.is_conflict, true, "conflicted PR is a conflict")
+  assert_eq(conflict_pr.event.payload.merge.merge_state, "open", "conflicted PR still open")
+  // Non-PR events carry no merge block.
+  let push_body = json_stringify(
+    {actor: {display_name: "Ada"}, repository: {full_name: "acme/widgets"}, push: {changes: []}},
+  )
+  let push = normalize_inbound(signed_raw("repo:push", push_body))
+  assert_eq(push.event.payload.merge, nil, "push event has no merge block")
+  // @-mention extraction on a PR comment.
+  let pr_comment_body = json_stringify(
+    {
+      actor: {display_name: "Linus", nickname: "linus"},
+      repository: {full_name: "acme/widgets"},
+      pullrequest: {id: 42, title: "Improve widgets", state: "OPEN"},
+      comment: {
+        id: 9001,
+        content: {raw: "@harn-bot deploy staging now\nthanks!"},
+        links: {html: {href: "https://bitbucket.org/acme/widgets/pull-requests/42#comment-9001"}},
+      },
+    },
+  )
+  let pr_comment = normalize_inbound(signed_raw("pullrequest:comment_created", pr_comment_body))
+  assert_eq(pr_comment.type, "event", "PR comment envelope")
+  let pr_mention = pr_comment.event.payload.mention
+  assert(pr_mention != nil, "PR comment has a mention block")
+  assert_eq(pr_mention.target_kind, "pull_request", "PR comment target kind")
+  assert_eq(pr_mention.target_id, 42, "PR comment target id")
+  assert_eq(pr_mention.actor.username, "linus", "PR comment actor")
+  assert(ends_with(to_string(pr_mention.url), "#comment-9001"), "PR comment url")
+  assert_eq(len(pr_mention.candidates), 1, "one PR mention candidate")
+  assert_eq(pr_mention.candidates[0].handle, "harn-bot", "PR mention handle")
+  assert_eq(pr_mention.candidates[0].command, "deploy", "PR mention command")
+  assert_eq(pr_mention.candidates[0].rest, "staging now", "PR mention rest")
+  // @-mention extraction on an issue comment.
+  let issue_comment_body = json_stringify(
+    {
+      actor: {display_name: "Ada", nickname: "ada"},
+      repository: {full_name: "acme/widgets"},
+      issue: {id: 17, title: "Flaky test", state: "new"},
+      comment: {id: 9002, content: {raw: "@harn-bot triage P1"}},
+    },
+  )
+  let issue_comment = normalize_inbound(signed_raw("issue:comment_created", issue_comment_body))
+  assert_eq(issue_comment.type, "event", "issue comment envelope")
+  let issue_mention = issue_comment.event.payload.mention
+  assert(issue_mention != nil, "issue comment has a mention block")
+  assert_eq(issue_mention.target_kind, "issue", "issue comment target kind")
+  assert_eq(issue_mention.target_id, 17, "issue comment target id")
+  assert_eq(issue_mention.candidates[0].command, "triage", "issue mention command")
+  assert_eq(issue_mention.candidates[0].rest, "P1", "issue mention rest")
+  // A comment without a leading @handle command yields no mention block.
+  let plain_comment_body = json_stringify(
+    {
+      actor: {display_name: "Ada"},
+      repository: {full_name: "acme/widgets"},
+      pullrequest: {id: 42, state: "OPEN"},
+      comment: {id: 9003, content: {raw: "looks good to me"}},
+    },
+  )
+  let plain_comment = normalize_inbound(signed_raw("pullrequest:comment_created", plain_comment_body))
+  assert_eq(plain_comment.event.payload.mention, nil, "plain comment has no mention block")
+  // Non-comment events never carry a mention block.
+  assert_eq(open_pr.event.payload.mention, nil, "PR update event has no mention block")
+  shutdown()
+}

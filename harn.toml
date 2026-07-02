@@ -4,6 +4,7 @@ version = "0.2.0"
 description = "Pure-Harn Bitbucket connector: Cloud/Data Center webhooks, HMAC verification, and REST dispatch."
 license = "MIT OR Apache-2.0"
 repository = "https://github.com/burin-labs/harn-bitbucket-connector"
+harn = ">=0.8,<0.9"
 connector_contract = "v1"
 
 [exports]

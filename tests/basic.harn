@@ -18,31 +18,31 @@ pipeline default() {
   assert_eq(kinds()[0], "webhook", "first kind")
   assert_eq(payload_schema().harn_schema_name, "BitbucketEventPayload", "schema")
   init({signing_secret: "secret"})
-  let activated = activate([{id: "primary", path: "/hooks/bitbucket", secrets: {signing_secret: "secret"}}])
+  const activated = activate([{id: "primary", path: "/hooks/bitbucket", secrets: {signing_secret: "secret"}}])
   assert_eq(activated.bindings, 1, "activation count")
-  let body = "{\"actor\":{\"display_name\":\"Ada\"},\"repository\":{\"full_name\":\"acme/widgets\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/acme/widgets\"}}},\"pullrequest\":{\"id\":42,\"title\":\"Improve widgets\"}}"
-  let headers = {"x-event-key": "pullrequest:created", "x-hook-uuid": "delivery-1"}
-  let signature = "sha256=" + hmac_sha256("secret", body)
-  let raw = {body_text: body, headers: headers + {"x-hub-signature": signature}}
-  let normalized = normalize_inbound(raw)
+  const body = "{\"actor\":{\"display_name\":\"Ada\"},\"repository\":{\"full_name\":\"acme/widgets\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/acme/widgets\"}}},\"pullrequest\":{\"id\":42,\"title\":\"Improve widgets\"}}"
+  const headers = {"x-event-key": "pullrequest:created", "x-hook-uuid": "delivery-1"}
+  const signature = "sha256=" + hmac_sha256("secret", body)
+  const raw = {body_text: body, headers: headers + {"x-hub-signature": signature}}
+  const normalized = normalize_inbound(raw)
   assert_eq(normalized.type, "event", "envelope type")
   assert_eq(normalized.event.kind, "pullrequest.created", "event kind")
   assert_eq(normalized.event.signature_status.state, "verified", "signed status")
   assert(normalized.event.dedupe_key != nil && normalized.event.dedupe_key != "", "dedupe key")
-  let bad_signature = normalize_inbound({body_text: body, headers: headers + {"x-hub-signature": "sha256=00"}})
+  const bad_signature = normalize_inbound({body_text: body, headers: headers + {"x-hub-signature": "sha256=00"}})
   assert_eq(bad_signature.type, "reject", "bad signature rejects")
   assert_eq(bad_signature.reject.status, 401, "bad signature status")
-  let invalid_json = normalize_inbound({body_text: "{bad json", headers: headers})
+  const invalid_json = normalize_inbound({body_text: "{bad json", headers: headers})
   assert_eq(invalid_json.type, "reject", "invalid json rejects")
   // F1 fail-closed: shutdown clears ctx, no binding has allow_unsigned, so
   // unsigned webhooks are rejected.
   shutdown()
-  let unsigned_reject = normalize_inbound({body_text: body, headers: headers})
+  const unsigned_reject = normalize_inbound({body_text: body, headers: headers})
   assert_eq(unsigned_reject.type, "reject", "unsigned rejects when no secret configured")
   assert_eq(unsigned_reject.reject.status, 401, "unsigned reject status")
   // F1 opt-in: per-binding allow_unsigned keeps the unsigned path.
   activate([{binding_id: "lenient", path: "/hooks/lenient", allow_unsigned: true}])
-  let unsigned_event = normalize_inbound({body_text: body, headers: headers, metadata: {binding_id: "lenient"}})
+  const unsigned_event = normalize_inbound({body_text: body, headers: headers, metadata: {binding_id: "lenient"}})
   assert_eq(unsigned_event.type, "event", "unsigned accepted when binding opts in")
   assert_eq(unsigned_event.event.signature_status.state, "unsigned", "unsigned status")
   shutdown()
@@ -53,13 +53,13 @@ pipeline default() {
     "https://api.bitbucket.org/2.0/projects",
     {status: 200, body: json_stringify({ok: true})},
   )
-  let response = call(
+  const response = call(
     "api.request",
     {api_base_url: "https://api.bitbucket.org/2.0", path: "/projects", access_token: "token"},
   )
   assert_eq(response.ok, true, "api request")
   // F2: api.request rejects absolute URL paths that escape the configured host.
-  let ssrf = call(
+  const ssrf = call(
     "api.request",
     {
       api_base_url: "https://api.bitbucket.org/2.0",
@@ -70,18 +70,18 @@ pipeline default() {
   assert(is_err(ssrf), "absolute-URL SSRF rejected")
   assert_eq(unwrap_err(ssrf).code, "invalid_path", "ssrf error code")
   // F3: api_base_url must be https; loopback/RFC1918 are blocked.
-  let loopback = call(
+  const loopback = call(
     "api.request",
     {api_base_url: "https://127.0.0.1/api", path: "/projects", access_token: "token"},
   )
   assert(is_err(loopback), "loopback api_base_url rejected")
   assert_eq(unwrap_err(loopback).code, "invalid_api_base_url", "loopback error code")
-  let http_scheme = call(
+  const http_scheme = call(
     "api.request",
     {api_base_url: "http://api.bitbucket.org/2.0", path: "/projects", access_token: "token"},
   )
   assert(is_err(http_scheme), "http (non-https) api_base_url rejected")
-  let unsupported = call("unknown", {})
+  const unsupported = call("unknown", {})
   assert(is_err(unsupported), "unknown method errors")
   http_mock_clear()
   shutdown()

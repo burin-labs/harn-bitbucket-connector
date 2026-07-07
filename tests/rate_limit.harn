@@ -4,9 +4,9 @@ import { call, rate_limit_gate } from "../src/lib"
 pipeline default() {
   egress_policy({allow: ["bitbucket-api.test"], default: "deny"})
   http_mock_clear()
-  let base = "https://bitbucket-api.test/2.0"
-  let path = "/repositories/acme/widgets/pullrequests"
-  let url = base + path
+  const base = "https://bitbucket-api.test/2.0"
+  const path = "/repositories/acme/widgets/pullrequests"
+  const url = base + path
   http_mock(
     "GET",
     url,
@@ -21,7 +21,7 @@ pipeline default() {
       ],
     },
   )
-  let retried = call(
+  const retried = call(
     "api.request",
     {api_base_url: base, path: path, access_token: "token", rate_limit_max_wait_seconds: 0, now: 0},
   )
@@ -36,7 +36,7 @@ pipeline default() {
       headers: {"x-ratelimit-remaining": "0", "x-ratelimit-reset": "10000"},
     },
   )
-  let capped = call(
+  const capped = call(
     "api.request",
     {api_base_url: base, path: path, access_token: "token", rate_limit_max_wait_seconds: 30, now: 0},
   )
@@ -53,16 +53,16 @@ pipeline default() {
       ],
     },
   )
-  let retry_after = call(
+  const retry_after = call(
     "api.request",
     {api_base_url: base, path: path, access_token: "token", rate_limit_max_wait_seconds: 5},
   )
   assert_eq(retry_after.values[0].id, 2, "Retry-After honored on 503")
-  let bucket_first = rate_limit_gate(nil, {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000}, 0)
+  const bucket_first = rate_limit_gate(nil, {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000}, 0)
   assert_eq(bucket_first.allowed, true, "token bucket first call allowed")
-  let bucket_second = rate_limit_gate(bucket_first.state, {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000}, 0)
+  const bucket_second = rate_limit_gate(bucket_first.state, {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000}, 0)
   assert_eq(bucket_second.allowed, true, "token bucket second call allowed")
-  let bucket_third = rate_limit_gate(bucket_second.state, {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000}, 0)
+  const bucket_third = rate_limit_gate(bucket_second.state, {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000}, 0)
   assert_eq(bucket_third.allowed, false, "token bucket third call exhausted")
   assert(bucket_third.retry_after_ms > 0, "token bucket exhaustion sets retry_after_ms")
   http_mock_clear()

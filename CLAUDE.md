@@ -13,9 +13,10 @@ to the Harn guide first.
 
 - Webhook routing keys come from `x-event-key`; delivery ids come from `x-hook-uuid` or `x-request-
   uuid`.
-- HMAC verification uses `verify_hmac_signature` from `std/connectors/shared` against the raw
-  request body. Both `sha256=<hex>` and bare-hex `x-hub-signature` headers are accepted; unsigned
-  events are only valid when no verification material is configured.
+- HMAC verification uses `verify_hmac_signature` from `std/connectors/shared`
+  against the raw request body. Both `sha256=<hex>` and bare-hex
+  `x-hub-signature` headers are accepted. Unsigned events require an explicit
+  `allow_unsigned: true` binding.
 - Outbound calls target `https://api.bitbucket.org/2.0` by default and accept OAuth2 tokens, app
   passwords, or Data Center PATs through call args or `BITBUCKET_TOKEN`.
 - Outbound rate-limit handling reads `X-RateLimit-Remaining`/`X-RateLimit-Reset` and `Retry-After`

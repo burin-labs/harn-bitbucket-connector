@@ -4,7 +4,11 @@ fn signed_raw(event_key, body) {
   const signature = "sha256=" + hmac_sha256("secret", body)
   return {
     body_text: body,
-    headers: {"x-event-key": event_key, "x-hook-uuid": "delivery-" + event_key, "x-hub-signature": signature},
+    headers: {
+      "x-event-key": event_key,
+      "x-hook-uuid": "delivery-" + event_key,
+      "x-hub-signature": signature,
+    },
   }
 }
 
@@ -18,7 +22,10 @@ pipeline default() {
   const open_body = json_stringify(
     {
       actor: {display_name: "Ada", nickname: "ada"},
-      repository: {full_name: "acme/widgets", links: {html: {href: "https://bitbucket.org/acme/widgets"}}},
+      repository: {
+        full_name: "acme/widgets",
+        links: {html: {href: "https://bitbucket.org/acme/widgets"}},
+      },
       pullrequest: {id: 42, title: "Improve widgets", state: "OPEN"},
     },
   )
@@ -34,7 +41,12 @@ pipeline default() {
     {
       actor: {display_name: "Ada"},
       repository: {full_name: "acme/widgets"},
-      pullrequest: {id: 42, title: "Improve widgets", state: "MERGED", merge_commit: {hash: "abc123"}},
+      pullrequest: {
+        id: 42,
+        title: "Improve widgets",
+        state: "MERGED",
+        merge_commit: {hash: "abc123"},
+      },
     },
   )
   const merged_pr = normalize_inbound(signed_raw("pullrequest:fulfilled", merged_body))
@@ -114,7 +126,9 @@ pipeline default() {
       comment: {id: 9003, content: {raw: "looks good to me"}},
     },
   )
-  const plain_comment = normalize_inbound(signed_raw("pullrequest:comment_created", plain_comment_body))
+  const plain_comment = normalize_inbound(
+    signed_raw("pullrequest:comment_created", plain_comment_body),
+  )
   assert_eq(plain_comment.event.payload.mention, nil, "plain comment has no mention block")
   // Non-comment events never carry a mention block.
   assert_eq(open_pr.event.payload.mention, nil, "PR update event has no mention block")

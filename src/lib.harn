@@ -95,7 +95,8 @@ pub fn activate(bindings = []) {
   let by_id = {}
   let seen_paths = {}
   for binding in bindings ?? [] {
-    const binding_id = binding?.binding_id ?? binding?.id ?? ("binding-" + to_string(len(by_id.keys())))
+    const binding_id = binding?.binding_id ?? binding?.id
+      ?? ("binding-" + to_string(len(by_id.keys())))
     const path = binding?.path ?? binding?.match?.path
     if path != nil && path != "" {
       if seen_paths.get(path) {
@@ -141,7 +142,11 @@ pub fn normalize_inbound(raw) {
   const payload = unwrap(parsed)
   const base_event = __base_event(payload, headers)
   if base_event == nil || base_event == "" {
-    return __reject(400, "missing_event", "missing " + PROVIDER_ID + " event header or payload event")
+    return __reject(
+      400,
+      "missing_event",
+      "missing " + PROVIDER_ID + " event header or payload event",
+    )
   }
   if !__supports_event(base_event) {
     return __reject(
@@ -190,7 +195,10 @@ pub fn call(method, args = {}) {
         + {
         method: "PATCH",
         path: args?.path ?? __pull_request_path(args),
-        body: __body_without(args, __config_keys() + ["owner", "repo", "pull_request", "pull_request_id", "path"]),
+        body: __body_without(
+          args,
+          __config_keys() + ["owner", "repo", "pull_request", "pull_request_id", "path"],
+        ),
       },
     )
   }
@@ -243,7 +251,9 @@ fn __reject(status, code, message) {
 
 fn __reject_err(err) {
   const code = err?.code ?? "rejected"
-  const status = if code == "invalid_signature" || code == "missing_signature" || code == "missing_secret" {
+  const status = if code == "invalid_signature" || code == "missing_signature"
+    || code
+    == "missing_secret" {
     401
   } else {
     400
@@ -266,7 +276,9 @@ fn __base_event(payload, headers) {
   if from_header != nil && from_header != "" {
     return to_string(from_header)
   }
-  return payload?.event ?? payload?.event_name ?? payload?.object_kind ?? payload?.type ?? payload?.action
+  return payload?.event ?? payload?.event_name ?? payload?.object_kind ?? payload?.type
+    ?? payload
+    ?.action
 }
 
 fn __supports_event(event) {
@@ -296,12 +308,18 @@ fn __verify_signature(raw, headers, body_text) {
   }
   const provided = __header(headers, SIGNATURE_HEADER)
   if provided == nil || provided == "" {
-    return __err("missing_signature", SIGNATURE_HEADER + " header missing but a signing_secret is configured")
+    return __err(
+      "missing_signature",
+      SIGNATURE_HEADER + " header missing but a signing_secret is configured",
+    )
   }
   if verify_hmac_signature(body_text, to_string(provided), to_string(secret)) {
     return Ok("signed")
   }
-  return __err("invalid_signature", SIGNATURE_HEADER + " did not match the configured signing_secret")
+  return __err(
+    "invalid_signature",
+    SIGNATURE_HEADER + " did not match the configured signing_secret",
+  )
 }
 
 fn __signing_secret(raw) {
@@ -315,7 +333,8 @@ fn __signing_secret(raw) {
   if binding_id != nil {
     const binding = bindings.get(binding_id)
     const binding_secret = binding?.signing_secret ?? binding?.secrets?.signing_secret
-      ?? binding?.config?.signing_secret
+      ?? binding
+      ?.config?.signing_secret
     if binding_secret != nil && trim(to_string(binding_secret)) != "" {
       return to_string(binding_secret)
     }
@@ -346,7 +365,8 @@ fn __signing_secret_id(raw) {
   if binding_id != nil {
     const binding = bindings.get(binding_id)
     const bid = binding?.signing_secret_id ?? binding?.secrets?.signing_secret_id
-      ?? binding?.config?.secret_ids?.signing_secret
+      ?? binding?.config
+      ?.secret_ids?.signing_secret
     if bid != nil && trim(to_string(bid)) != "" {
       return to_string(bid)
     }
@@ -372,7 +392,8 @@ fn __build_event(base_event, payload, raw, headers, signature_status, body_text)
   const kind = __event_kind(base_event, payload)
   return {
     kind: kind,
-    occurred_at: raw?.occurred_at ?? payload?.updated_at ?? payload?.created_at ?? payload?.timestamp,
+    occurred_at: raw?.occurred_at ?? payload?.updated_at ?? payload?.created_at
+      ?? payload?.timestamp,
     dedupe_key: __dedupe_key(base_event, payload, raw, headers, body_text),
     signature_status: __signature_status(signature_status),
     payload: {
@@ -398,7 +419,8 @@ fn __signature_status(status) {
 
 fn __event_kind(base_event, payload) {
   const normalized = __normalize_kind(base_event)
-  const action = payload?.action ?? payload?.pullrequest?.state ?? payload?.object_attributes?.action
+  const action = payload?.action ?? payload?.pullrequest?.state
+    ?? payload?.object_attributes?.action
   if action == nil || action == "" || contains(normalized, ".") {
     return normalized
   }
@@ -431,9 +453,14 @@ fn __actor(payload) {
 
 fn __resource(payload) {
   return payload?.pull_request ?? payload?.pullrequest ?? payload?.issue ?? payload?.comment
-    ?? payload?.release
+    ?? payload
+    ?.release
     ?? payload?.object_attributes
-    ?? {revision: payload?.revision, changed_paths: payload?.changed_paths, commits: payload?.commits}
+    ?? {
+    revision: payload?.revision,
+    changed_paths: payload?.changed_paths,
+    commits: payload?.commits,
+  }
 }
 
 /**
@@ -615,7 +642,9 @@ fn __outbound_config(args) {
   if is_err(base_check) {
     return base_check
   }
-  const access_token = args?.access_token ?? args?.token ?? args?.personal_access_token ?? args?.app_password
+  const access_token = args?.access_token ?? args?.token ?? args?.personal_access_token
+    ?? args
+    ?.app_password
     ?? args?.secrets?.access_token
     ?? harness.env.get(env_token)
   return Ok({api_base_url: to_string(api_base_url), access_token: access_token})
@@ -701,7 +730,9 @@ fn __send_with_rate_limit_retry(method, url, options, args) {
     return __err(
       code,
       PROVIDER_ID + " API request failed with status " + to_string(response.status) + ": "
-        + (response.body ?? ""),
+        + (response
+        .body
+        ?? ""),
     )
   }
 }
@@ -724,7 +755,11 @@ fn __is_throttled_status(status) {
 }
 
 fn __rate_limit_wait(response, max_wait_seconds, override_now) {
-  const wait_seconds = __rate_limit_wait_seconds(response.status, response.headers ?? {}, override_now)
+  const wait_seconds = __rate_limit_wait_seconds(
+    response.status,
+    response.headers ?? {},
+    override_now,
+  )
     ?? 0
   if wait_seconds > max_wait_seconds {
     return __err(
@@ -930,7 +965,10 @@ fn __is_disallowed_host(host_lc) {
     return true
   }
   if ends_with(host_lc, ".localhost") || ends_with(host_lc, ".local")
-    || ends_with(host_lc, ".internal") {
+    || ends_with(
+    host_lc,
+    ".internal",
+  ) {
     return true
   }
   if host_lc == "::1" || host_lc == "0:0:0:0:0:0:0:1" {
@@ -970,7 +1008,10 @@ fn __repo_ref(args) {
 }
 
 fn __pull_request_path(args) {
-  return "/repos/" + __repo_ref(args) + "/pulls/" + to_string(args?.pull_request ?? args?.pull_request_id)
+  return "/repos/" + __repo_ref(args) + "/pulls/"
+    + to_string(
+    args?.pull_request ?? args?.pull_request_id,
+  )
 }
 
 fn __pull_request_comment_path(args) {
@@ -978,7 +1019,8 @@ fn __pull_request_comment_path(args) {
 }
 
 fn __issue_comment_path(args) {
-  return "/repos/" + __repo_ref(args) + "/issues/" + to_string(args?.issue ?? args?.issue_id) + "/comments"
+  return "/repos/" + __repo_ref(args) + "/issues/" + to_string(args?.issue ?? args?.issue_id)
+    + "/comments"
 }
 
 fn __commit_status_path(args) {

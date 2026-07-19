@@ -18,9 +18,12 @@ pipeline default() {
   assert_eq(kinds()[0], "webhook", "first kind")
   assert_eq(payload_schema().harn_schema_name, "BitbucketEventPayload", "schema")
   init({signing_secret: "secret"})
-  const activated = activate([{id: "primary", path: "/hooks/bitbucket", secrets: {signing_secret: "secret"}}])
+  const activated = activate(
+    [{id: "primary", path: "/hooks/bitbucket", secrets: {signing_secret: "secret"}}],
+  )
   assert_eq(activated.bindings, 1, "activation count")
-  const body = "{\"actor\":{\"display_name\":\"Ada\"},\"repository\":{\"full_name\":\"acme/widgets\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/acme/widgets\"}}},\"pullrequest\":{\"id\":42,\"title\":\"Improve widgets\"}}"
+  const body =
+    "{\"actor\":{\"display_name\":\"Ada\"},\"repository\":{\"full_name\":\"acme/widgets\",\"links\":{\"html\":{\"href\":\"https://bitbucket.org/acme/widgets\"}}},\"pullrequest\":{\"id\":42,\"title\":\"Improve widgets\"}}"
   const headers = {"x-event-key": "pullrequest:created", "x-hook-uuid": "delivery-1"}
   const signature = "sha256=" + hmac_sha256("secret", body)
   const raw = {body_text: body, headers: headers + {"x-hub-signature": signature}}
@@ -29,7 +32,9 @@ pipeline default() {
   assert_eq(normalized.event.kind, "pullrequest.created", "event kind")
   assert_eq(normalized.event.signature_status.state, "verified", "signed status")
   assert(normalized.event.dedupe_key != nil && normalized.event.dedupe_key != "", "dedupe key")
-  const bad_signature = normalize_inbound({body_text: body, headers: headers + {"x-hub-signature": "sha256=00"}})
+  const bad_signature = normalize_inbound(
+    {body_text: body, headers: headers + {"x-hub-signature": "sha256=00"}},
+  )
   assert_eq(bad_signature.type, "reject", "bad signature rejects")
   assert_eq(bad_signature.reject.status, 401, "bad signature status")
   const invalid_json = normalize_inbound({body_text: "{bad json", headers: headers})
@@ -42,7 +47,9 @@ pipeline default() {
   assert_eq(unsigned_reject.reject.status, 401, "unsigned reject status")
   // F1 opt-in: per-binding allow_unsigned keeps the unsigned path.
   activate([{binding_id: "lenient", path: "/hooks/lenient", allow_unsigned: true}])
-  const unsigned_event = normalize_inbound({body_text: body, headers: headers, metadata: {binding_id: "lenient"}})
+  const unsigned_event = normalize_inbound(
+    {body_text: body, headers: headers, metadata: {binding_id: "lenient"}},
+  )
   assert_eq(unsigned_event.type, "event", "unsigned accepted when binding opts in")
   assert_eq(unsigned_event.event.signature_status.state, "unsigned", "unsigned status")
   shutdown()

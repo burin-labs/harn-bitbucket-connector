@@ -5,20 +5,20 @@ import {
   kinds,
   normalize_inbound,
   payload_schema,
-  poll_tick,
   provider_id,
   shutdown,
 } from "../src/lib"
 
 @complexity(allow)
-pipeline default() {
-  egress_policy({allow: ["api.bitbucket.org"], default: "deny"})
-  shutdown()
+pipeline default(harness: Harness) {
+  harness.net.egress_policy({allow: ["api.bitbucket.org"], default: "deny"})
+  shutdown(harness)
   assert_eq(provider_id(), "bitbucket", "provider id")
   assert_eq(kinds()[0], "webhook", "first kind")
   assert_eq(payload_schema().harn_schema_name, "BitbucketEventPayload", "schema")
-  init({signing_secret: "secret"})
+  init(harness, {signing_secret: "secret"})
   const activated = activate(
+    harness,
     [{id: "primary", path: "/hooks/bitbucket", secrets: {signing_secret: "secret"}}],
   )
   assert_eq(activated.bindings, 1, "activation count")
@@ -27,46 +27,50 @@ pipeline default() {
   const headers = {"x-event-key": "pullrequest:created", "x-hook-uuid": "delivery-1"}
   const signature = "sha256=" + hmac_sha256("secret", body)
   const raw = {body_text: body, headers: headers + {"x-hub-signature": signature}}
-  const normalized = normalize_inbound(raw)
+  const normalized = normalize_inbound(harness, raw)
   assert_eq(normalized.type, "event", "envelope type")
   assert_eq(normalized.event.kind, "pullrequest.created", "event kind")
   assert_eq(normalized.event.signature_status.state, "verified", "signed status")
   assert(normalized.event.dedupe_key != nil && normalized.event.dedupe_key != "", "dedupe key")
   const bad_signature = normalize_inbound(
+    harness,
     {body_text: body, headers: headers + {"x-hub-signature": "sha256=00"}},
   )
   assert_eq(bad_signature.type, "reject", "bad signature rejects")
   assert_eq(bad_signature.reject.status, 401, "bad signature status")
-  const invalid_json = normalize_inbound({body_text: "{bad json", headers: headers})
+  const invalid_json = normalize_inbound(harness, {body_text: "{bad json", headers: headers})
   assert_eq(invalid_json.type, "reject", "invalid json rejects")
   // F1 fail-closed: shutdown clears ctx, no binding has allow_unsigned, so
   // unsigned webhooks are rejected.
-  shutdown()
-  const unsigned_reject = normalize_inbound({body_text: body, headers: headers})
+  shutdown(harness)
+  const unsigned_reject = normalize_inbound(harness, {body_text: body, headers: headers})
   assert_eq(unsigned_reject.type, "reject", "unsigned rejects when no secret configured")
   assert_eq(unsigned_reject.reject.status, 401, "unsigned reject status")
   // F1 opt-in: per-binding allow_unsigned keeps the unsigned path.
-  activate([{binding_id: "lenient", path: "/hooks/lenient", allow_unsigned: true}])
+  activate(harness, [{binding_id: "lenient", path: "/hooks/lenient", allow_unsigned: true}])
   const unsigned_event = normalize_inbound(
+    harness,
     {body_text: body, headers: headers, metadata: {binding_id: "lenient"}},
   )
   assert_eq(unsigned_event.type, "event", "unsigned accepted when binding opts in")
   assert_eq(unsigned_event.event.signature_status.state, "unsigned", "unsigned status")
-  shutdown()
-  init({signing_secret: "secret"})
-  http_mock_clear()
-  http_mock(
+  shutdown(harness)
+  init(harness, {signing_secret: "secret"})
+  harness.testing.http_mock_clear()
+  harness.testing.http_mock(
     "GET",
     "https://api.bitbucket.org/2.0/projects",
     {status: 200, body: json_stringify({ok: true})},
   )
   const response = call(
+    harness,
     "api.request",
     {api_base_url: "https://api.bitbucket.org/2.0", path: "/projects", access_token: "token"},
   )
   assert_eq(response.ok, true, "api request")
   // F2: api.request rejects absolute URL paths that escape the configured host.
   const ssrf = call(
+    harness,
     "api.request",
     {
       api_base_url: "https://api.bitbucket.org/2.0",
@@ -78,18 +82,20 @@ pipeline default() {
   assert_eq(unwrap_err(ssrf).code, "invalid_path", "ssrf error code")
   // F3: api_base_url must be https; loopback/RFC1918 are blocked.
   const loopback = call(
+    harness,
     "api.request",
     {api_base_url: "https://127.0.0.1/api", path: "/projects", access_token: "token"},
   )
   assert(is_err(loopback), "loopback api_base_url rejected")
   assert_eq(unwrap_err(loopback).code, "invalid_api_base_url", "loopback error code")
   const http_scheme = call(
+    harness,
     "api.request",
     {api_base_url: "http://api.bitbucket.org/2.0", path: "/projects", access_token: "token"},
   )
   assert(is_err(http_scheme), "http (non-https) api_base_url rejected")
-  const unsupported = call("unknown", {})
+  const unsupported = call(harness, "unknown", {})
   assert(is_err(unsupported), "unknown method errors")
-  http_mock_clear()
-  shutdown()
+  harness.testing.http_mock_clear()
+  shutdown(harness)
 }

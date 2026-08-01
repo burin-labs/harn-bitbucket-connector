@@ -13,10 +13,13 @@ fn signed_raw(event_key, body) {
 }
 
 @complexity(allow)
-pipeline default() {
-  shutdown()
-  init({signing_secret: "secret"})
-  activate([{id: "primary", path: "/hooks/bitbucket", secrets: {signing_secret: "secret"}}])
+pipeline default(harness: Harness) {
+  shutdown(harness)
+  init(harness, {signing_secret: "secret"})
+  activate(
+    harness,
+    [{id: "primary", path: "/hooks/bitbucket", secrets: {signing_secret: "secret"}}],
+  )
   // Merge-state surfacing on an open PR: merge_state mirrors the PR state and
   // no conflict hint is present (Bitbucket webhooks omit mergeability).
   const open_body = json_stringify(
@@ -29,7 +32,7 @@ pipeline default() {
       pullrequest: {id: 42, title: "Improve widgets", state: "OPEN"},
     },
   )
-  const open_pr = normalize_inbound(signed_raw("pullrequest:updated", open_body))
+  const open_pr = normalize_inbound(harness, signed_raw("pullrequest:updated", open_body))
   assert_eq(open_pr.type, "event", "open PR envelope")
   const open_merge = open_pr.event.payload.merge
   assert(open_merge != nil, "open PR has a merge block")
@@ -49,7 +52,7 @@ pipeline default() {
       },
     },
   )
-  const merged_pr = normalize_inbound(signed_raw("pullrequest:fulfilled", merged_body))
+  const merged_pr = normalize_inbound(harness, signed_raw("pullrequest:fulfilled", merged_body))
   assert_eq(merged_pr.event.payload.merge.merge_state, "merged", "merged PR merge_state")
   assert_eq(merged_pr.event.payload.merge.merge_commit, "abc123", "merged PR merge_commit")
   // A Data Center PR exposing an explicit CONFLICTED merge result surfaces
@@ -66,14 +69,14 @@ pipeline default() {
       },
     },
   )
-  const conflict_pr = normalize_inbound(signed_raw("pullrequest:updated", conflict_body))
+  const conflict_pr = normalize_inbound(harness, signed_raw("pullrequest:updated", conflict_body))
   assert_eq(conflict_pr.event.payload.merge.is_conflict, true, "conflicted PR is a conflict")
   assert_eq(conflict_pr.event.payload.merge.merge_state, "open", "conflicted PR still open")
   // Non-PR events carry no merge block.
   const push_body = json_stringify(
     {actor: {display_name: "Ada"}, repository: {full_name: "acme/widgets"}, push: {changes: []}},
   )
-  const push = normalize_inbound(signed_raw("repo:push", push_body))
+  const push = normalize_inbound(harness, signed_raw("repo:push", push_body))
   assert_eq(push.event.payload.merge, nil, "push event has no merge block")
   // @-mention extraction on a PR comment.
   const pr_comment_body = json_stringify(
@@ -88,7 +91,10 @@ pipeline default() {
       },
     },
   )
-  const pr_comment = normalize_inbound(signed_raw("pullrequest:comment_created", pr_comment_body))
+  const pr_comment = normalize_inbound(
+    harness,
+    signed_raw("pullrequest:comment_created", pr_comment_body),
+  )
   assert_eq(pr_comment.type, "event", "PR comment envelope")
   const pr_mention = pr_comment.event.payload.mention
   assert(pr_mention != nil, "PR comment has a mention block")
@@ -109,7 +115,10 @@ pipeline default() {
       comment: {id: 9002, content: {raw: "@harn-bot triage P1"}},
     },
   )
-  const issue_comment = normalize_inbound(signed_raw("issue:comment_created", issue_comment_body))
+  const issue_comment = normalize_inbound(
+    harness,
+    signed_raw("issue:comment_created", issue_comment_body),
+  )
   assert_eq(issue_comment.type, "event", "issue comment envelope")
   const issue_mention = issue_comment.event.payload.mention
   assert(issue_mention != nil, "issue comment has a mention block")
@@ -127,10 +136,11 @@ pipeline default() {
     },
   )
   const plain_comment = normalize_inbound(
+    harness,
     signed_raw("pullrequest:comment_created", plain_comment_body),
   )
   assert_eq(plain_comment.event.payload.mention, nil, "plain comment has no mention block")
   // Non-comment events never carry a mention block.
   assert_eq(open_pr.event.payload.mention, nil, "PR update event has no mention block")
-  shutdown()
+  shutdown(harness)
 }

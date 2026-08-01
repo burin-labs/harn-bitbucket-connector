@@ -1,13 +1,13 @@
 import { call, rate_limit_gate } from "../src/lib"
 
 @complexity(allow)
-pipeline default() {
-  egress_policy({allow: ["bitbucket-api.test"], default: "deny"})
-  http_mock_clear()
+pipeline default(harness: Harness) {
+  harness.net.egress_policy({allow: ["bitbucket-api.test"], default: "deny"})
+  harness.testing.http_mock_clear()
   const base = "https://bitbucket-api.test/2.0"
   const path = "/repositories/acme/widgets/pullrequests"
   const url = base + path
-  http_mock(
+  harness.testing.http_mock(
     "GET",
     url,
     {
@@ -22,12 +22,13 @@ pipeline default() {
     },
   )
   const retried = call(
+    harness,
     "api.request",
     {api_base_url: base, path: path, access_token: "token", rate_limit_max_wait_seconds: 0, now: 0},
   )
   assert_eq(retried.values[0].id, 1, "rate-limit retry succeeded")
-  http_mock_clear()
-  http_mock(
+  harness.testing.http_mock_clear()
+  harness.testing.http_mock(
     "GET",
     url,
     {
@@ -37,6 +38,7 @@ pipeline default() {
     },
   )
   const capped = call(
+    harness,
     "api.request",
     {
       api_base_url: base,
@@ -48,8 +50,8 @@ pipeline default() {
   )
   assert(is_err(capped), "rate-limit cap rejects")
   assert_eq(unwrap_err(capped).code, "rate_limited", "rate-limit cap returns rate_limited code")
-  http_mock_clear()
-  http_mock(
+  harness.testing.http_mock_clear()
+  harness.testing.http_mock(
     "GET",
     url,
     {
@@ -60,28 +62,32 @@ pipeline default() {
     },
   )
   const retry_after = call(
+    harness,
     "api.request",
     {api_base_url: base, path: path, access_token: "token", rate_limit_max_wait_seconds: 5},
   )
   assert_eq(retry_after.values[0].id, 2, "Retry-After honored on 503")
   const bucket_first = rate_limit_gate(
+    harness.clock,
     nil,
     {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000},
     0,
   )
   assert_eq(bucket_first.allowed, true, "token bucket first call allowed")
   const bucket_second = rate_limit_gate(
+    harness.clock,
     bucket_first.state,
     {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000},
     0,
   )
   assert_eq(bucket_second.allowed, true, "token bucket second call allowed")
   const bucket_third = rate_limit_gate(
+    harness.clock,
     bucket_second.state,
     {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000},
     0,
   )
   assert_eq(bucket_third.allowed, false, "token bucket third call exhausted")
   assert(bucket_third.retry_after_ms > 0, "token bucket exhaustion sets retry_after_ms")
-  http_mock_clear()
+  harness.testing.http_mock_clear()
 }

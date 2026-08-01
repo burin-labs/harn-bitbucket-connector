@@ -1,14 +1,14 @@
 import { call } from "../src/lib"
 
 @complexity(allow)
-pipeline default() {
-  egress_policy({allow: ["bitbucket-api.test"], default: "deny"})
-  http_mock_clear()
+pipeline default(harness: Harness) {
+  harness.net.egress_policy({allow: ["bitbucket-api.test"], default: "deny"})
+  harness.testing.http_mock_clear()
   const base = "https://bitbucket-api.test/2.0"
   const first_url = base + "/repositories/acme/widgets/pullrequests"
   const second_url = base + "/repositories/acme/widgets/pullrequests?page=2"
   const third_url = base + "/repositories/acme/widgets/pullrequests?page=3"
-  http_mock(
+  harness.testing.http_mock(
     "GET",
     first_url,
     {
@@ -16,7 +16,7 @@ pipeline default() {
       body: "{\"values\":[{\"id\":1},{\"id\":2}],\"next\":\"" + second_url + "\",\"pagelen\":2}",
     },
   )
-  http_mock(
+  harness.testing.http_mock(
     "GET",
     second_url,
     {
@@ -24,8 +24,13 @@ pipeline default() {
       body: "{\"values\":[{\"id\":3},{\"id\":4}],\"next\":\"" + third_url + "\",\"pagelen\":2}",
     },
   )
-  http_mock("GET", third_url, {status: 200, body: "{\"values\":[{\"id\":5}],\"pagelen\":2}"})
+  harness.testing.http_mock(
+    "GET",
+    third_url,
+    {status: 200, body: "{\"values\":[{\"id\":5}],\"pagelen\":2}"},
+  )
   const listed = call(
+    harness,
     "pagination.list",
     {api_base_url: base, path: "/repositories/acme/widgets/pullrequests", access_token: "token"},
   )
@@ -33,24 +38,26 @@ pipeline default() {
   assert_eq(len(listed.items), 5, "all items collected across pages")
   assert_eq(listed.items[0].id, 1, "first item from first page")
   assert_eq(listed.items[4].id, 5, "last item from final page")
-  http_mock_clear()
+  harness.testing.http_mock_clear()
   const single_url = base + "/repositories/acme/widgets/issues"
-  http_mock("GET", single_url, {status: 200, body: "{\"values\":[{\"id\":99}]}"})
+  harness.testing.http_mock("GET", single_url, {status: 200, body: "{\"values\":[{\"id\":99}]}"})
   const single = call(
+    harness,
     "pagination.list",
     {api_base_url: base, path: "/repositories/acme/widgets/issues", access_token: "token"},
   )
   assert_eq(single.complete, true, "single page complete")
   assert_eq(len(single.items), 1, "single page item count")
-  http_mock_clear()
+  harness.testing.http_mock_clear()
   const bounded_first = base + "/repositories/acme/widgets/commits"
   const bounded_next = base + "/repositories/acme/widgets/commits?page=2"
-  http_mock(
+  harness.testing.http_mock(
     "GET",
     bounded_first,
     {status: 200, body: "{\"values\":[{\"hash\":\"a\"}],\"next\":\"" + bounded_next + "\"}"},
   )
   const bounded = call(
+    harness,
     "pagination.list",
     {
       api_base_url: base,
@@ -62,8 +69,8 @@ pipeline default() {
   assert_eq(bounded.complete, false, "bounded paginate stops at max_pages")
   assert_eq(len(bounded.items), 1, "bounded paginate returns first-page items")
   assert(bounded.next_cursor != nil, "bounded paginate exposes next_cursor")
-  const missing = call("pagination.list", {api_base_url: base, access_token: "token"})
+  const missing = call(harness, "pagination.list", {api_base_url: base, access_token: "token"})
   assert(is_err(missing), "missing path errors")
   assert_eq(unwrap_err(missing).code, "invalid_args", "missing path code")
-  http_mock_clear()
+  harness.testing.http_mock_clear()
 }

@@ -68,18 +68,21 @@ pipeline default(harness: Harness) {
   )
   assert_eq(retry_after.values[0].id, 2, "Retry-After honored on 503")
   const bucket_first = rate_limit_gate(
+    harness.clock,
     nil,
     {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000},
     0,
   )
   assert_eq(bucket_first.allowed, true, "token bucket first call allowed")
   const bucket_second = rate_limit_gate(
+    harness.clock,
     bucket_first.state,
     {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000},
     0,
   )
   assert_eq(bucket_second.allowed, true, "token bucket second call allowed")
   const bucket_third = rate_limit_gate(
+    harness.clock,
     bucket_second.state,
     {capacity: 2, refill_tokens: 1, refill_interval_ms: 1000},
     0,

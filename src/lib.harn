@@ -1046,6 +1046,6 @@ fn __repository_file_path(args) {
 }
 
 /** Token-bucket gate that bindings can use to throttle outbound traffic. */
-pub fn rate_limit_gate(state = nil, config = nil, now_ms = nil) {
-  return rate_limit_token_bucket(state, config, now_ms)
+pub fn rate_limit_gate(clock: HarnessClock, state = nil, config = nil, now_ms = nil) {
+  return rate_limit_token_bucket(clock, state, config, now_ms)
 }

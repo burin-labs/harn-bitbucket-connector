@@ -9,7 +9,7 @@ fn pr_headers() {
 }
 
 @complexity(allow)
-pipeline default(harness: Harness) {
+pipeline test_signature(harness: Harness) {
   shutdown(harness)
   init(harness, {signing_secret: "secret"})
   activate(

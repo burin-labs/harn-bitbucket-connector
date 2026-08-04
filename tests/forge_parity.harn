@@ -13,7 +13,7 @@ fn signed_raw(event_key, body) {
 }
 
 @complexity(allow)
-pipeline default(harness: Harness) {
+pipeline test_forge_parity(harness: Harness) {
   shutdown(harness)
   init(harness, {signing_secret: "secret"})
   activate(

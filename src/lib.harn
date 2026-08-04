@@ -237,13 +237,13 @@ pub fn call(harness: Harness, method, args = {}) {
   )
 }
 
-fn __state(harness: HarnessRuntime) {
-  return harness.store_get(STATE_KEY)
+fn __state(runtime: HarnessRuntime) {
+  return runtime.store_get(STATE_KEY)
     ?? {initialized: false, active: false, bindings: {}, ctx: {}}
 }
 
-fn __set_state(harness: HarnessRuntime, state) {
-  harness.store_set(STATE_KEY, state)
+fn __set_state(runtime: HarnessRuntime, state) {
+  runtime.store_set(STATE_KEY, state)
   return state
 }
 
@@ -372,13 +372,13 @@ fn __signing_secret(harness: {secrets: HarnessSecrets, runtime: HarnessRuntime},
   return nil
 }
 
-fn __signing_secret_id(harness: HarnessRuntime, raw) {
+fn __signing_secret_id(runtime: HarnessRuntime, raw) {
   const metadata = raw?.metadata ?? {}
   const id = metadata?.secret_ids?.signing_secret ?? metadata?.config?.secret_ids?.signing_secret
   if id != nil && trim(to_string(id)) != "" {
     return to_string(id)
   }
-  const bindings = __state(harness)?.bindings ?? {}
+  const bindings = __state(runtime)?.bindings ?? {}
   const binding_id = metadata?.binding_id ?? raw?.binding_id
   if binding_id != nil {
     const binding = bindings.get(binding_id)
@@ -392,8 +392,8 @@ fn __signing_secret_id(harness: HarnessRuntime, raw) {
   return nil
 }
 
-fn __binding_allows_unsigned(harness: HarnessRuntime, raw) {
-  const bindings = __state(harness)?.bindings ?? {}
+fn __binding_allows_unsigned(runtime: HarnessRuntime, raw) {
+  const bindings = __state(runtime)?.bindings ?? {}
   const binding_id = raw?.metadata?.binding_id ?? raw?.binding_id
   if binding_id == nil {
     return false
@@ -652,10 +652,10 @@ fn __normalized_headers(headers) {
 }
 
 @complexity(allow)
-fn __outbound_config(harness: HarnessEnv, args) {
+fn __outbound_config(env: HarnessEnv, args) {
   const env_base = ENV_PREFIX + "_API_BASE_URL"
   const env_token = ENV_PREFIX + "_TOKEN"
-  const api_base_url = args?.api_base_url ?? harness.get_or(env_base, DEFAULT_API_BASE_URL)
+  const api_base_url = args?.api_base_url ?? env.get_or(env_base, DEFAULT_API_BASE_URL)
   const base_check = __validate_api_base_url(api_base_url)
   if is_err(base_check) {
     return base_check
@@ -664,7 +664,7 @@ fn __outbound_config(harness: HarnessEnv, args) {
     ?? args
     ?.app_password
     ?? args?.secrets?.access_token
-    ?? harness.get(env_token)
+    ?? env.get(env_token)
   return Ok({api_base_url: to_string(api_base_url), access_token: access_token})
 }
 
@@ -784,9 +784,9 @@ fn __is_throttled_status(status) {
   return status == 429 || status == 503
 }
 
-fn __rate_limit_wait(harness: HarnessClock, response, max_wait_seconds, override_now) {
+fn __rate_limit_wait(clock: HarnessClock, response, max_wait_seconds, override_now) {
   const wait_seconds = __rate_limit_wait_seconds(
-    harness,
+    clock,
     response.status,
     response.headers ?? {},
     override_now,
@@ -800,12 +800,12 @@ fn __rate_limit_wait(harness: HarnessClock, response, max_wait_seconds, override
     )
   }
   if wait_seconds > 0 {
-    harness.sleep_ms(wait_seconds * 1000)
+    clock.sleep_ms(wait_seconds * 1000)
   }
   return Ok(true)
 }
 
-fn __rate_limit_wait_seconds(harness: HarnessClock, status, headers, override_now) {
+fn __rate_limit_wait_seconds(clock: HarnessClock, status, headers, override_now) {
   const retry_after = __retry_after_seconds(headers)
   if retry_after != nil {
     return retry_after
@@ -828,7 +828,7 @@ fn __rate_limit_wait_seconds(harness: HarnessClock, status, headers, override_no
   if is_err(parsed_reset) {
     return 0
   }
-  const now = override_now ?? to_int(harness.timestamp())
+  const now = override_now ?? to_int(clock.timestamp())
   const wait = unwrap(parsed_reset) - now
   if wait < 0 {
     return 0

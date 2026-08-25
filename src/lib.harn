@@ -189,10 +189,10 @@ pub fn call(harness: Harness, method, args = {}) {
       harness,
       args
         + {
-        method: "POST",
-        path: args?.path ?? __pull_request_comment_path(args),
-        body: {body: args?.body ?? args?.comment},
-      },
+          method: "POST",
+          path: args?.path ?? __pull_request_comment_path(args),
+          body: {body: args?.body ?? args?.comment},
+        },
     )
   }
   if method == "pull_requests.update" {
@@ -200,13 +200,13 @@ pub fn call(harness: Harness, method, args = {}) {
       harness,
       args
         + {
-        method: "PATCH",
-        path: args?.path ?? __pull_request_path(args),
-        body: __body_without(
-          args,
-          __config_keys() + ["owner", "repo", "pull_request", "pull_request_id", "path"],
-        ),
-      },
+          method: "PATCH",
+          path: args?.path ?? __pull_request_path(args),
+          body: __body_without(
+            args,
+            __config_keys() + ["owner", "repo", "pull_request", "pull_request_id", "path"],
+          ),
+        },
     )
   }
   if method == "issues.comment" {
@@ -214,10 +214,10 @@ pub fn call(harness: Harness, method, args = {}) {
       harness,
       args
         + {
-        method: "POST",
-        path: args?.path ?? __issue_comment_path(args),
-        body: {body: args?.body ?? args?.comment},
-      },
+          method: "POST",
+          path: args?.path ?? __issue_comment_path(args),
+          body: {body: args?.body ?? args?.comment},
+        },
     )
   }
   if method == "commit_status.set" {
@@ -225,10 +225,10 @@ pub fn call(harness: Harness, method, args = {}) {
       harness,
       args
         + {
-        method: "POST",
-        path: args?.path ?? __commit_status_path(args),
-        body: __body_without(args, __config_keys() + ["owner", "repo", "sha", "path"]),
-      },
+          method: "POST",
+          path: args?.path ?? __commit_status_path(args),
+          body: __body_without(args, __config_keys() + ["owner", "repo", "sha", "path"]),
+        },
     )
   }
   return __api_request(
@@ -266,7 +266,7 @@ fn __reject_err(err) {
   const code = err?.code ?? "rejected"
   const status = if code == "invalid_signature" || code == "missing_signature"
     || code
-    == "missing_secret" {
+      == "missing_secret" {
     401
   } else {
     400
@@ -290,8 +290,7 @@ fn __base_event(payload, headers) {
     return to_string(from_header)
   }
   return payload?.event ?? payload?.event_name ?? payload?.object_kind ?? payload?.type
-    ?? payload
-    ?.action
+    ?? payload?.action
 }
 
 fn __supports_event(event) {
@@ -351,8 +350,7 @@ fn __signing_secret(harness: {secrets: HarnessSecrets, runtime: HarnessRuntime},
   if binding_id != nil {
     const binding = bindings.get(binding_id)
     const binding_secret = binding?.signing_secret ?? binding?.secrets?.signing_secret
-      ?? binding
-      ?.config?.signing_secret
+      ?? binding?.config?.signing_secret
     if binding_secret != nil && trim(to_string(binding_secret)) != "" {
       return to_string(binding_secret)
     }
@@ -383,8 +381,7 @@ fn __signing_secret_id(runtime: HarnessRuntime, raw) {
   if binding_id != nil {
     const binding = bindings.get(binding_id)
     const bid = binding?.signing_secret_id ?? binding?.secrets?.signing_secret_id
-      ?? binding?.config
-      ?.secret_ids?.signing_secret
+      ?? binding?.config?.secret_ids?.signing_secret
     if bid != nil && trim(to_string(bid)) != "" {
       return to_string(bid)
     }
@@ -471,14 +468,13 @@ fn __actor(payload) {
 
 fn __resource(payload) {
   return payload?.pull_request ?? payload?.pullrequest ?? payload?.issue ?? payload?.comment
-    ?? payload
-    ?.release
+    ?? payload?.release
     ?? payload?.object_attributes
     ?? {
-    revision: payload?.revision,
-    changed_paths: payload?.changed_paths,
-    commits: payload?.commits,
-  }
+      revision: payload?.revision,
+      changed_paths: payload?.changed_paths,
+      commits: payload?.commits,
+    }
 }
 
 /**
@@ -661,8 +657,7 @@ fn __outbound_config(env: HarnessEnv, args) {
     return base_check
   }
   const access_token = args?.access_token ?? args?.token ?? args?.personal_access_token
-    ?? args
-    ?.app_password
+    ?? args?.app_password
     ?? args?.secrets?.access_token
     ?? env.get(env_token)
   return Ok({api_base_url: to_string(api_base_url), access_token: access_token})
@@ -760,9 +755,8 @@ fn __send_with_rate_limit_retry(
     return __err(
       code,
       PROVIDER_ID + " API request failed with status " + to_string(response.status) + ": "
-        + (response
-        .body
-        ?? ""),
+        + (response.body
+          ?? ""),
     )
   }
 }
@@ -996,10 +990,7 @@ fn __is_disallowed_host(host_lc) {
     return true
   }
   if ends_with(host_lc, ".localhost") || ends_with(host_lc, ".local")
-    || ends_with(
-    host_lc,
-    ".internal",
-  ) {
+    || ends_with(host_lc, ".internal") {
     return true
   }
   if host_lc == "::1" || host_lc == "0:0:0:0:0:0:0:1" {
@@ -1040,9 +1031,7 @@ fn __repo_ref(args) {
 
 fn __pull_request_path(args) {
   return "/repos/" + __repo_ref(args) + "/pulls/"
-    + to_string(
-    args?.pull_request ?? args?.pull_request_id,
-  )
+    + to_string(args?.pull_request ?? args?.pull_request_id)
 }
 
 fn __pull_request_comment_path(args) {

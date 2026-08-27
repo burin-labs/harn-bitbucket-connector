@@ -1,6 +1,6 @@
 import { activate, init, normalize_inbound, shutdown } from "../src/lib"
 
-fn signed_raw(event_key, body) {
+fn signed_raw(event_key: any, body: any) {
   const signature = "sha256=" + hmac_sha256("secret", body)
   return {
     body_text: body,

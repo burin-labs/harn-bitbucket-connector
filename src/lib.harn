@@ -1,4 +1,5 @@
 import {
+  connector_lifecycle,
   paginate_cursor,
   rate_limit_token_bucket,
   verify_hmac_signature,
@@ -7,6 +8,8 @@ import {
 const PROVIDER_ID = "bitbucket"
 
 const STATE_KEY = "harn-bitbucket-connector.state"
+
+const lifecycle = connector_lifecycle(PROVIDER_ID, STATE_KEY)
 
 const DEFAULT_API_BASE_URL = "https://api.bitbucket.org/2.0"
 
@@ -85,39 +88,17 @@ pub fn payload_schema() {
 
 /** Initialize connector state with orchestrator context. */
 pub fn init(harness: Harness, ctx: any = nil) {
-  const next = __state(harness.runtime) + {initialized: true, ctx: ctx ?? {}}
-  __set_state(harness.runtime, next)
-  return next
+  return lifecycle.init(harness.runtime, ctx)
 }
 
 /** Activate configured trigger bindings. */
 pub fn activate(harness: Harness, bindings: any = []) {
-  let by_id = {}
-  let seen_paths = {}
-  for binding in bindings ?? [] {
-    const binding_id = binding?.binding_id ?? binding?.id
-      ?? ("binding-" + to_string(len(by_id.keys())))
-    const path = binding?.path ?? binding?.match?.path
-    if path != nil && path != "" {
-      if seen_paths.get(path) {
-        return __err(
-          "activation",
-          PROVIDER_ID + " connector path `" + path + "` is configured by multiple bindings",
-        )
-      }
-      seen_paths[path] = true
-    }
-    by_id[binding_id] = binding + {binding_id: binding_id}
-  }
-  const next = __state(harness.runtime) + {bindings: by_id, active: true}
-  __set_state(harness.runtime, next)
-  return {provider: PROVIDER_ID, bindings: len(by_id.keys())}
+  return lifecycle.activate(harness.runtime, bindings)
 }
 
 /** Clear connector lifecycle state. */
 pub fn shutdown(harness: Harness) {
-  harness.runtime.store_delete(STATE_KEY)
-  return {provider: PROVIDER_ID, active: false}
+  return lifecycle.shutdown(harness.runtime)
 }
 
 @complexity(allow)
@@ -238,13 +219,7 @@ pub fn call(harness: Harness, method: any, args: any = {}) {
 }
 
 fn __state(runtime: HarnessRuntime) {
-  return runtime.store_get(STATE_KEY)
-    ?? {initialized: false, active: false, bindings: {}, ctx: {}}
-}
-
-fn __set_state(runtime: HarnessRuntime, state: any) {
-  runtime.store_set(STATE_KEY, state)
-  return state
+  return lifecycle.state(runtime)
 }
 
 fn __err(code: any, message: any) {
@@ -938,14 +913,13 @@ fn __validate_api_base_url(api_base_url: any) {
   if !starts_with(lowercase(url), "https://") {
     return __err("invalid_api_base_url", "api_base_url must use https:// scheme")
   }
-  const after_scheme = url[8:len(url)]
-  const slash_idx = __index_of(after_scheme, "/")
-  const host_port = if slash_idx >= 0 {
-    after_scheme[0:slash_idx]
-  } else {
-    after_scheme
+  const parsed = try {
+    url_parse(url)
   }
-  const host = __strip_port(host_port)
+  if is_err(parsed) {
+    return __err("invalid_api_base_url", "api_base_url is not a valid URL")
+  }
+  const host = replace(replace(to_string(unwrap(parsed).host ?? ""), "[", ""), "]", "")
   if host == "" {
     return __err("invalid_api_base_url", "api_base_url is missing a host")
   }
@@ -958,37 +932,6 @@ fn __validate_api_base_url(api_base_url: any) {
     )
   }
   return Ok(true)
-}
-
-fn __strip_port(host_port: any) {
-  if starts_with(host_port, "[") {
-    const close = __index_of(host_port, "]")
-    if close >= 0 {
-      return host_port[1:close]
-    }
-    return host_port
-  }
-  const colon = __index_of(host_port, ":")
-  if colon >= 0 {
-    return host_port[0:colon]
-  }
-  return host_port
-}
-
-fn __index_of(text: any, needle: any) {
-  const n = len(text)
-  const m = len(needle)
-  if m == 0 {
-    return 0
-  }
-  let i = 0
-  while i + m <= n {
-    if text[i:i + m] == needle {
-      return i
-    }
-    i = i + 1
-  }
-  return -1
 }
 
 @complexity(allow)
@@ -1010,7 +953,7 @@ fn __is_disallowed_host(host_lc: any) {
   }
   if starts_with(host_lc, "172.") {
     const rest = host_lc[4:len(host_lc)]
-    const dot = __index_of(rest, ".")
+    const dot = rest.index_of(".") ?? -1
     if dot > 0 {
       const octet_str = rest[0:dot]
       const parsed = try {

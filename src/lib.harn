@@ -129,7 +129,7 @@ pub fn normalize_inbound(harness: Harness, raw: any) {
   }
   const headers = raw?.headers ?? {}
   const verified = __verify_signature(
-    {secrets: harness.secrets, runtime: harness.runtime},
+    pick(harness, ["secrets", "runtime"]),
     raw,
     headers,
     body_text,
@@ -312,7 +312,7 @@ fn __verify_signature(
   headers: any,
   body_text: any,
 ) {
-  const secret = __signing_secret({secrets: harness.secrets, runtime: harness.runtime}, raw)
+  const secret = __signing_secret(pick(harness, ["secrets", "runtime"]), raw)
   if secret == nil || trim(to_string(secret)) == "" {
     if __binding_allows_unsigned(harness.runtime, raw) {
       return Ok("unsigned")
@@ -713,13 +713,7 @@ fn __api_request(harness: Harness, args: any) {
     return url_result
   }
   const url = unwrap(url_result)
-  return __send_with_rate_limit_retry(
-    {clock: harness.clock, net: harness.net},
-    method,
-    url,
-    options,
-    args,
-  )
+  return __send_with_rate_limit_retry(pick(harness, ["clock", "net"]), method, url, options, args)
 }
 
 @complexity(allow)

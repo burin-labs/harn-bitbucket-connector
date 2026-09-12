@@ -8,7 +8,7 @@ It normalizes inbound webhook payloads to the tagged `NormalizeResult` envelope,
 verifies provider-specific webhook signatures, and exposes outbound raw API helpers
 plus common PR/comment/status method aliases.
 
-Package version `0.2.0` supports Harn `>=0.10,<0.11`.
+Package version `0.2.0` supports Harn `>=0.10.135,<0.11`.
 
 ## Install
 

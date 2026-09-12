@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Require Harn 0.10.135 and use typed field projections for connector capabilities.
+
 ## v0.2.0
 
 - Surface PR merge/conflict state on `pullrequest:*` events. The

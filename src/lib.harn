@@ -96,7 +96,7 @@ pub fn activate(harness: Harness, bindings: any = []) {
   let seen_paths = {}
   for binding in bindings ?? [] {
     const binding_id = binding?.binding_id ?? binding?.id
-      ?? ("binding-" + to_string(len(by_id.keys())))
+      ?? "binding-" + to_string(len(by_id.keys()))
     const path = binding?.path ?? binding?.match?.path
     if path != nil && path != "" {
       if seen_paths.get(path) {
@@ -868,7 +868,7 @@ fn __pagination_list(harness: Harness, args: any) {
   const max_pages = args?.max_pages ?? 100
   const items_path = args?.items_path ?? "/values"
   const cursor_path = args?.cursor_path ?? "/next"
-  const request_args = args + {}
+  let request_args = args + {}
   request_args.remove("path")
   request_args.remove("url")
   request_args.remove("url_path")

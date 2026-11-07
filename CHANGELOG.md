@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Require Harn 0.10.190 and share its canonical URL host validation, including
+  alternate-form loopback addresses, while retaining connector error codes.
+
 - Require Harn 0.10.135 and use typed field projections for connector capabilities.
 
 ## v0.2.0

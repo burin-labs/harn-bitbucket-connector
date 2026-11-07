@@ -1,0 +1,35 @@
+import { init, normalize_inbound, shutdown } from "../src/lib"
+
+pipeline test_header_normalization_preserves_first_match_and_signed_webhooks(harness: Harness) {
+  shutdown(harness)
+  init(harness, {signing_secret: "header-secret"})
+  const body = json_stringify(
+    {actor: {display_name: "Ada"}, repository: {full_name: "acme/widgets"}, pullrequest: {id: 42}},
+  )
+  const raw = {
+    body_text: body,
+    headers: {
+      "x-event-key": "pullrequest:created",
+      "x-hook-uuid": "header-probe",
+      "x-hub-signature": "sha256=" + hmac_sha256("header-secret", body),
+    },
+  }
+  const ordinary = normalize_inbound(harness, raw)
+  assert_eq(ordinary.type, "event")
+  const aliases = dict_from_pairs(
+    raw.headers.entries().map(
+      { entry -> [" " + uppercase(entry.key) + " ", " " + entry.value + " "] },
+    ),
+  )
+  const collisions = aliases + raw.headers.map_values({ _value -> "wrong" })
+  for headers in [aliases, collisions] {
+    const accepted = normalize_inbound(harness, raw + {headers: headers})
+    assert_eq(accepted.type, "event")
+    assert_eq(accepted.event.kind, ordinary.event.kind)
+  }
+  for headers in [{unrelated: "ignored"}, nil] {
+    const refused = normalize_inbound(harness, raw + {headers: headers})
+    assert_eq(refused.type, "reject")
+  }
+  shutdown(harness)
+}
